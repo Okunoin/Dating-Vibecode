@@ -1,0 +1,706 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#0b1026">
+<title>Штурмовать Universe</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Marck+Script&family=Nunito:wght@400;700;800&display=swap" rel="stylesheet">
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+  :root {
+    --W: 390px;            /* ширина «телефона» */
+    --H: 844px;            /* высота «телефона» */
+    --bg: #0b1026;
+    --bg2: #2a2f6b;
+    --accent: #5aaee8;
+    --accent-dark: #50A2F4;
+    --text: #f2f2f3;
+    --muted: #b5b5ba;
+    --line: rgba(255, 255, 255, .18);
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body {
+    height: 100%; margin: 0; overflow: hidden;
+    overscroll-behavior: none;
+  }
+  body {
+    font-family: "Nunito", system-ui, sans-serif;
+    color: var(--text);
+    background: #060913;
+    position: fixed; inset: 0;
+    height: 100dvh;
+  }
+
+  /* Фиксированное окно: всегда 390×844, масштабируется целиком под экран */
+  #stage {
+    position: absolute;
+    left: 50%; top: 50%;
+    width: var(--W); height: var(--H);
+    margin: calc(var(--H) / -2) 0 0 calc(var(--W) / -2);
+    transform: scale(var(--s, 1));
+    transform-origin: center center;
+    overflow: hidden;
+    background: linear-gradient(180deg, var(--bg) 0%, #151b45 55%, var(--bg2) 100%);
+    display: flex; align-items: center; justify-content: center;
+  }
+  @media (pointer: fine) {
+    #stage { border-radius: 36px; box-shadow: 0 20px 60px rgba(0, 0, 0, .6); }
+  }
+
+  section { position: relative; z-index: 1; width: 100%; padding: 0; text-align: center; }
+  #step-done p { margin-bottom: 0; }
+
+  /* Глянцевая панель из светло-голубого стекла с 3D-наклоном */
+  .panel {
+    --muted: #e3ecfa;
+    --line: rgba(255, 255, 255, .42);
+    position: relative;
+    width: calc(100% - 48px);
+    padding: 28px 16px 24px;
+    border-radius: 30px;
+    background: linear-gradient(145deg, rgba(205, 232, 255, .20) 0%, rgba(165, 208, 250, .09) 50%, rgba(150, 198, 248, .15) 100%);
+    -webkit-backdrop-filter: blur(0px) saturate(1.25);
+    backdrop-filter: blur(0px) saturate(1.25);
+    border: 1px solid rgba(255, 255, 255, .30);
+    box-shadow:
+      inset 0 1.5px 0 rgba(255, 255, 255, .8),
+      inset 0 -1px 0 rgba(255, 255, 255, .14),
+      inset 1px 0 0 rgba(255, 255, 255, .18),
+      inset 0 0 36px rgba(190, 225, 255, .12),
+      0 24px 48px -8px rgba(2, 6, 30, .55),
+      0 4px 10px rgba(2, 6, 30, .25);
+    transform: perspective(900px);
+    will-change: transform;
+  }
+
+  /* Панель остаётся в пределах сцены, даже при большом количестве текста. */
+  .panel {
+    max-height: calc(100% - 32px);
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+  .panel > section:not(.hidden) {
+    min-height: 0;
+    max-height: 100%;
+    overflow-y: auto;
+    overflow-x: hidden;
+    scrollbar-width: thin;
+  }
+  /* Заметки прокручиваются внутри поля, а не увеличивают панель. */
+  #note {
+    display: block;
+    max-width: 100%;
+    min-width: 0;
+    height: 76px;
+    max-height: 76px;
+    resize: none;
+    overflow-y: auto;
+    overflow-x: hidden;
+    overflow-wrap: anywhere;
+  }
+
+  .panel h1 { text-shadow: 0 2px 12px rgba(10, 20, 70, .45); }
+  h1 {
+    font-family: "Marck Script", cursive;
+    font-weight: 400; font-size: 36px; line-height: 1.15;
+    margin: 0 0 8px;
+  }
+  p { margin: 0 0 22px; color: var(--muted); line-height: 1.5; }
+
+  .buttons { display: flex; justify-content: center; align-items: center; gap: 16px; min-height: 90px; }
+  button { font: inherit; font-weight: 800; cursor: pointer; border: 0; border-radius: 999px; }
+  .slot { display: block; width: 112px; height: 44px; }
+  #yes, #no {
+    width: 112px; height: 44px; padding: 0; font-size: 16px;
+    display: inline-flex; align-items: center; justify-content: center;
+    white-space: nowrap;
+  }
+  #yes {
+    background: var(--accent); color: #fff;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, .35);
+  }
+  #yes:hover { background: var(--accent-dark); }
+  #no {
+    background: transparent; color: #e3ecfa; border: 1px solid rgba(255, 255, 255, .42);
+    transition: left .25s ease, top .25s ease;
+    touch-action: manipulation;
+  }
+  #no.fly { position: absolute; z-index: 5; margin: 0; }
+
+  .hidden { display: none !important; }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin-bottom: 20px; }
+  .chip { background: transparent; color: var(--text); border: 1px solid var(--line); padding: 9px 16px; font-size: 15px; font-weight: 700; }
+  .chip[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); }
+  button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 3px solid #fff; outline-offset: 2px; }
+  label { display: block; text-align: left; font-weight: 700; font-size: 14px; color: var(--muted); margin: 0 0 6px; }
+  input, textarea {
+    width: 100%; font: inherit; font-size: 16px; /* 16px — чтобы iOS не приближал поле */
+    color: var(--text); background: rgba(8, 18, 60, .30);
+    border: 1px solid rgba(255, 255, 255, .30); border-radius: 14px; padding: 12px 8px; margin-bottom: 16px;
+    color-scheme: dark;
+  }
+  .row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; }
+  .row > div { min-width: 0; }
+  .row input { min-width: 0; }
+  #send { background: var(--accent); color: #fff; padding: 14px 28px; font-size: 18px; width: 100%; }
+  #send:disabled { opacity: .6; cursor: wait; }
+  .error { color: #d0d0d4; font-size: 14px; margin-top: 12px; }
+
+
+  /* Ночное небо (под всем содержимым) */
+  #sky { position: absolute; inset: 0; z-index: -1; overflow: hidden; pointer-events: none; }
+  #sky > * { position: absolute; }
+  #stars, #space { left: 0; top: 0; width: 100%; height: 100%; }
+
+  /* свечение у горизонта */
+  .glow {
+    left: -40px; right: -40px; bottom: -140px; height: 460px;
+    background: radial-gradient(ellipse at 50% 100%, rgba(98, 112, 205, .45), rgba(60, 72, 155, .18) 45%, transparent 72%);
+  }
+  /* Млечный Путь */
+  .galaxy {
+    left: -140px; top: 255px; width: 660px; height: 150px;
+    transform: rotate(-52deg);
+    background: linear-gradient(90deg, transparent, rgba(150, 165, 255, .09) 30%, rgba(205, 208, 255, .17) 50%, rgba(150, 165, 255, .09) 70%, transparent);
+    filter: blur(18px);
+  }
+  /* мерцающие яркие звёзды */
+  .tw {
+    border-radius: 50%; background: #fff;
+    opacity: 0; animation: twinkle var(--t, 3s) ease-in-out infinite; animation-delay: var(--dl, 0s);
+  }
+  @keyframes twinkle { 0%, 100% { opacity: 0; } 50% { opacity: var(--p, 1); } }
+
+  /* луна (рисуется в canvas при загрузке) */
+  .moon {
+    right: 34px; top: 72px; width: 54px; height: 54px; border-radius: 50%;
+    box-shadow: 0 0 26px 6px rgba(190, 205, 255, .14);
+  }
+
+  /* облака (рисуются в canvas при загрузке) */
+  .cloud { left: 0; will-change: transform; }
+
+  /* кометы */
+  .comet {
+    position: absolute; left: 0; top: 0; height: 2px; border-radius: 2px; opacity: 0;
+    transform-origin: 100% 50%;
+    background: linear-gradient(90deg, rgba(160, 200, 255, 0), rgba(170, 205, 255, .35) 55%, rgba(255, 255, 255, .95));
+  }
+  .comet::after {
+    content: ""; position: absolute; right: -3px; top: 50%; width: 7px; height: 7px; margin-top: -3.5px;
+    border-radius: 50%; background: #fff;
+    box-shadow: 0 0 8px 3px rgba(190, 220, 255, .8), 0 0 22px 8px rgba(130, 170, 255, .35);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .tw { animation: none; }
+    .tw { opacity: .7; }
+    .cloud { transform: translateX(40px); }
+    .comet { display: none; }
+  }
+
+  canvas#confetti { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 10; }
+</style>
+</head>
+<body>
+
+<main id="stage">
+  <div id="sky" aria-hidden="true">
+    <div class="glow"></div><div class="galaxy"></div>
+    <canvas class="moon" id="moon"></canvas>
+    <div id="space"></div>
+  </div>
+  <canvas id="confetti" width="390" height="844"></canvas>
+
+  <div class="panel" id="panel">
+  <!-- Шаг 1 -->
+  <section id="step-ask">
+    <h1>Моё солнце и звезды,</h1>
+    <p>пойдешь со мной на свидание????</p>
+    <div class="buttons">
+      <button id="yes">Конечно</button>
+      <span class="slot"><button id="no">Нет</button></span>
+    </div>
+  </section>
+
+  <!-- Шаг 2 -->
+  <section id="step-details" class="hidden">
+    <h1>Спасибо, любимый</h1>
+    <p>выбери <3 </p>
+    <div class="chips">
+      <button class="chip" aria-pressed="false">Музей</button>
+      <button class="chip" aria-pressed="false">Парк</button>
+      <button class="chip" aria-pressed="false">Тир</button>
+      <button class="chip" aria-pressed="false">Аквапарк</button>
+      <button class="chip" aria-pressed="false">Театр</button>
+      <button class="chip" aria-pressed="false">Велики</button>
+      <button class="chip" aria-pressed="false">Другое</button>
+    </div>
+    <div class="row">
+      <div><label for="date">Дата</label><input type="date" id="date"></div>
+      <div><label for="time">Время</label><input type="time" id="time"></div>
+    </div>
+    <label for="note">Заметки</label>
+    <textarea id="note" rows="2" placeholder="тык тык тык"></textarea>
+    <button id="send">Бам</button>
+    <div class="error hidden" id="error"></div>
+  </section>
+
+  <!-- Шаг 3 -->
+  <section id="step-done" class="hidden">
+    <h1>еееее, победа</h1>
+    <p>целую, муаа</p>
+  </section>
+  </div>
+</main>
+
+<script>
+/* ============ НАСТРОЙКИ ============ */
+// 1. Зарегистрируйтесь на https://web3forms.com, укажите свою почту — на неё придёт ключ.
+// 2. Вставьте ключ сюда. В браузере Телеграма mailto обычно не работает,
+//    поэтому с пустым ключом ответ не отправится — ключ нужен обязательно.
+const WEB3FORMS_KEY = "";
+const YOUR_EMAIL    = "";   // запасной вариант mailto (в Телеграме может не открыться)
+
+const TRIGGER_RADIUS = 35;   // px: насколько близко курсор должен подойти, чтобы «Нет» убежала
+const MIN_JUMP = 250;        // px: минимальная длина прыжка
+const ZONE_MARGIN = 16;      // px: свободный зазор вокруг кнопки «Да» и текста, куда «Нет» не прыгает
+const MAX_JUMP = 450;        // px: максимальная длина прыжка (в системе координат окна 390×844)
+/* =================================== */
+
+const $ = (id) => document.getElementById(id);
+const stage = $("stage"), yes = $("yes"), no = $("no");
+const W = 390, H = 844;
+
+/* Интеграция с Телеграмом (работает, если страница открыта как Mini App; иначе ничего не делает) */
+try {
+  const tg = window.Telegram && window.Telegram.WebApp;
+  if (tg) {
+    tg.ready(); tg.expand();
+    if (tg.disableVerticalSwipes) tg.disableVerticalSwipes();
+    if (tg.setHeaderColor) tg.setHeaderColor("#0b1026");
+    if (tg.setBackgroundColor) tg.setBackgroundColor("#060913");
+  }
+} catch (e) {}
+
+
+/* ===== Ночное небо: звёзды, Млечный Путь, облака, кометы ===== */
+(function sky() {
+  const box = $("sky"), space = $("space");
+  const W_ = 390, H_ = 844, rnd = (a, b) => a + Math.random() * (b - a);
+
+
+  /* 0. Луна: реалистичная текстура с морями, кратерами, лучами и фазой (рисуется один раз) */
+  (function drawMoon() {
+    const cv = $("moon"), R = 216;
+    cv.width = cv.height = R;
+    const q = cv.getContext("2d"), c = R / 2, r = c - 3;
+    let seed = 11;
+    const rr = () => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296; };   // одинаковая луна при каждой загрузке
+    const inDisk = (m) => { for (;;) { const x = c + (rr() * 2 - 1) * r * m, y = c + (rr() * 2 - 1) * r * m;
+      if (Math.hypot(x - c, y - c) < r * m) return [x, y]; } };
+
+    q.save(); q.beginPath(); q.arc(c, c, r, 0, 7); q.clip();
+
+    // основа: светлее у освещённого края
+    let g = q.createRadialGradient(c * .78, c * .74, r * .1, c, c, r * 1.05);
+    g.addColorStop(0, "#f4f1e3"); g.addColorStop(.7, "#d5d1c1"); g.addColorStop(1, "#a8a494");
+    q.fillStyle = g; q.fillRect(0, 0, R, R);
+
+    // мелкое зерно поверхности
+    for (let i = 0; i < 1100; i++) {
+      const [x, y] = inDisk(1), a = rr() * .07;
+      q.fillStyle = rr() < .5 ? `rgba(255,255,245,${a})` : `rgba(80,80,92,${a})`;
+      q.beginPath(); q.arc(x, y, rr() * 2.2 + .3, 0, 7); q.fill();
+    }
+
+    // тёмные «моря» (как на настоящей видимой стороне)
+    [[-.5, -.05, .3, .5, -.2], [-.2, -.45, .3, .24, 0], [.12, -.38, .2, .17, 0], [.3, -.05, .24, .2, .2],
+     [.62, -.2, .12, .1, 0], [-.2, .42, .2, .15, 0], [-.52, .42, .13, .11, 0], [.55, .1, .14, .2, 0], [.15, .22, .14, .1, 0]]
+      .forEach(([mx, my, rx, ry, rot]) => {
+        q.save(); q.translate(c + mx * r, c + my * r); q.rotate(rot); q.scale(rx * r, ry * r);
+        const m = q.createRadialGradient(0, 0, 0, 0, 0, 1);
+        m.addColorStop(0, "rgba(70,72,88,.62)"); m.addColorStop(.6, "rgba(80,82,96,.45)"); m.addColorStop(1, "rgba(80,82,96,0)");
+        q.fillStyle = m; q.beginPath(); q.arc(0, 0, 1, 0, 7); q.fill(); q.restore();
+      });
+
+    // кратеры: тень с освещённой стороны внутри, светлый вал с другой
+    function crater(x, y, cr, bright) {
+      const f = q.createRadialGradient(x, y, cr * .2, x, y, cr);
+      f.addColorStop(0, "rgba(60,60,74,.30)"); f.addColorStop(.85, "rgba(60,60,74,.16)"); f.addColorStop(1, "rgba(60,60,74,0)");
+      q.fillStyle = f; q.beginPath(); q.arc(x, y, cr, 0, 7); q.fill();
+      q.lineWidth = Math.max(.8, cr * .2); q.lineCap = "round";
+      q.strokeStyle = "rgba(40,40,55,.45)"; q.beginPath(); q.arc(x, y, cr * .85, Math.PI * .75, Math.PI * 1.75); q.stroke();
+      q.strokeStyle = `rgba(255,255,242,${bright ? .85 : .5})`; q.beginPath(); q.arc(x, y, cr * .95, -Math.PI * .25, Math.PI * .75); q.stroke();
+    }
+    for (let i = 0; i < 55; i++) {
+      const [x, y] = inDisk(.92), cr = 1.6 + Math.pow(rr(), 2.2) * 7;
+      crater(x, y, cr, false);
+    }
+    // яркие кратеры, у самого заметного есть лучи
+    [[-.08, .62, 7], [-.28, -.08, 6], [-.62, -.02, 4.5]].forEach(([kx, ky, cr], idx) => {
+      const x = c + kx * r, y = c + ky * r;
+      if (idx === 0) {                                             // лучи вокруг самого яркого
+        for (let i = 0; i < 16; i++) {
+          const a = rr() * Math.PI * 2, len = r * (.35 + rr() * .55);
+          const l = q.createLinearGradient(x, y, x + Math.cos(a) * len, y + Math.sin(a) * len);
+          l.addColorStop(0, "rgba(255,255,245,.30)"); l.addColorStop(1, "rgba(255,255,245,0)");
+          q.strokeStyle = l; q.lineWidth = 1 + rr() * 1.6;
+          q.beginPath(); q.moveTo(x, y); q.lineTo(x + Math.cos(a) * len, y + Math.sin(a) * len); q.stroke();
+        }
+      }
+      const h = q.createRadialGradient(x, y, 0, x, y, cr * 2.4);
+      h.addColorStop(0, "rgba(255,255,245,.55)"); h.addColorStop(1, "rgba(255,255,245,0)");
+      q.fillStyle = h; q.beginPath(); q.arc(x, y, cr * 2.4, 0, 7); q.fill();
+      crater(x, y, cr, true);
+    });
+
+    // потемнение к краю диска
+    g = q.createRadialGradient(c, c, r * .55, c, c, r);
+    g.addColorStop(0, "rgba(20,24,48,0)"); g.addColorStop(1, "rgba(20,24,48,.42)");
+    q.fillStyle = g; q.fillRect(0, 0, R, R);
+
+    q.restore();
+  })();
+
+  /* 1. Звёзды: все гаснут и загораются, каждая в своём ритме.
+        Основа раскладывается по сетке со случайным сдвигом (равномерно по экрану), плюс скопление вдоль Млечного Пути */
+  const tints = ["255,255,255", "205,218,255", "255,236,210", "185,205,255"];
+  const ang = -52 * Math.PI / 180, cx = 180, cy = 330;
+  function addStar(x, y) {
+    const mag = Math.pow(Math.random(), 2.4);           // мало ярких, много тусклых
+    const sz = 1 + mag * 1.6;
+    const t = document.createElement("span");
+    t.className = "tw";
+    t.style.cssText = `position:absolute;left:${x}px;top:${y}px;width:${sz}px;height:${sz}px;` +
+      `background:rgb(${tints[Math.floor(Math.random() * tints.length)]});` +
+      `--p:${(.4 + mag * .6).toFixed(2)};--t:${rnd(2.5, 6).toFixed(1)}s;--dl:${(-rnd(0, 6)).toFixed(1)}s`;
+    space.appendChild(t);
+  }
+  const CELL = 40;
+  for (let gx = 0; gx < W_; gx += CELL)
+    for (let gy = 0; gy < H_ * .92; gy += CELL)
+      if (Math.random() < .85) addStar(gx + rnd(0, CELL), gy + rnd(0, CELL));
+  for (let i = 0; i < 90; i++) {                         // вдоль Млечного Пути
+    const u = rnd(-320, 320), v = (Math.random() + Math.random() + Math.random() - 1.5) * 70;
+    const x = cx + u * Math.cos(ang) - v * Math.sin(ang), y = cy + u * Math.sin(ang) + v * Math.cos(ang);
+    if (x > 0 && x < W_ && y > 0 && y < H_) addStar(x, y);
+  }
+
+  /* 2. Облака: каждое рисуется отдельно из мягких пятен (светлый верх, плоский низ) */
+  function makeCloud(w, h) {
+    const c = document.createElement("canvas"); c.width = w * 2; c.height = h * 2;
+    const q = c.getContext("2d"); q.scale(2, 2);
+    const n = 16 + Math.floor(Math.random() * 10);
+    for (let i = 0; i < n; i++) {
+      const t = i / (n - 1), bump = Math.sin(t * Math.PI);
+      const x = w * .12 + t * w * .76 + rnd(-.05, .05) * w;
+      const r = h * (.2 + .22 * bump * Math.random() + .1 * Math.random());
+      const y = h * .64 - bump * h * .22 * Math.random() - Math.random() * h * .08;
+      let gr = q.createRadialGradient(x, y, 0, x, y, r);
+      gr.addColorStop(0, "rgba(130,145,215,.34)"); gr.addColorStop(.6, "rgba(110,125,200,.16)"); gr.addColorStop(1, "rgba(110,125,200,0)");
+      q.fillStyle = gr; q.beginPath(); q.arc(x, y, r, 0, 7); q.fill();
+      const y2 = y - r * .35, r2 = r * .6;
+      gr = q.createRadialGradient(x, y2, 0, x, y2, r2);
+      gr.addColorStop(0, "rgba(215,225,255,.28)"); gr.addColorStop(1, "rgba(215,225,255,0)");
+      q.fillStyle = gr; q.beginPath(); q.arc(x, y2, r2, 0, 7); q.fill();
+    }
+    q.globalCompositeOperation = "destination-out";    // срезаем низ, чтобы облако было «плоским» снизу
+    const fade = q.createLinearGradient(0, h * .66, 0, h);
+    fade.addColorStop(0, "rgba(0,0,0,0)"); fade.addColorStop(1, "rgba(0,0,0,.9)");
+    q.fillStyle = fade; q.fillRect(0, 0, w, h);
+    return c;
+  }
+  const MIN_CLOUDS = 3, MAX_CLOUDS = 4;  // на небе всегда от 3 до 4 облаков
+  const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const activeTops = [];
+  function spawnCloud(progress) {
+    if (activeTops.length >= MAX_CLOUDS) return;
+    const w = rnd(300, 430), h = Math.round(w * rnd(.3, .36));
+    let top = rnd(40, H_ - h - 60);
+    for (let i = 0; i < 25; i++) {                       // выбираем высоту, непохожую на высоту другого облака
+      const t = rnd(40, H_ - h - 60);
+      if (activeTops.every((o) => Math.abs(o - t) > 150)) { top = t; break; }
+    }
+    const c = makeCloud(w, h);
+    c.className = "cloud";
+    c.style.cssText = `top:${top}px;width:${w}px;height:${h}px;opacity:${rnd(.7, .95).toFixed(2)}`;
+    box.appendChild(c);
+    activeTops.push(top);
+    if (reduced) { c.style.transform = `translateX(${rnd(0, W_ - w)}px)`; return; }
+    const dur = rnd(150, 230) * 1000;
+    const anim = c.animate(
+      [{ transform: `translateX(${-w - 20}px)` }, { transform: `translateX(${W_ + 20}px)` }],
+      { duration: dur, easing: "linear" });
+    anim.currentTime = progress * dur;                   // стартовое положение (чтобы небо не было пустым при загрузке)
+    anim.onfinish = () => {
+      c.remove();
+      activeTops.splice(activeTops.indexOf(top), 1);
+      if (activeTops.length < MIN_CLOUDS) spawnCloud(0);   // меньше трёх не бывает: сразу выплывает новое
+      scheduleSpawn();
+    };
+  }
+  let pending = false;
+  function scheduleSpawn() {                              // облака сверх минимума добавляются через 6–14 секунд
+    if (pending || activeTops.length >= MAX_CLOUDS) return;
+    pending = true;
+    setTimeout(() => {
+      pending = false;
+      spawnCloud(0);
+      scheduleSpawn();
+    }, rnd(6000, 14000));
+  }
+  spawnCloud(rnd(.1, .3));
+  spawnCloud(rnd(.4, .6));
+  spawnCloud(rnd(.7, .9));
+  if (Math.random() < .5) spawnCloud(rnd(.25, .45));
+  scheduleSpawn();
+
+  /* 3. Кометы: время от времени пролетает одна, иногда две */
+  function comet(small) {
+    const len = small ? rnd(70, 110) : rnd(120, 200);
+    // всегда стартуют из верхнего левого угла и летят вниз-вправо
+    const down = rnd(28, 55);                                               // угол в градусах
+    const rad = down * Math.PI / 180;
+    const sx = rnd(-40, 30), sy = rnd(-40, 30);
+    const dist = rnd(520, 760);
+    const ex = sx + Math.cos(rad) * dist, ey = sy + Math.sin(rad) * dist;
+    const el = document.createElement("div");
+    el.className = "comet"; el.style.width = len + "px";
+    if (small) el.style.transform = "scale(.8)";
+    space.appendChild(el);
+    const tf = (x, y) => `translate(${x - len}px, ${y}px) rotate(${down}deg)`;
+    const anim = el.animate([
+      { transform: tf(sx, sy), opacity: 0 },
+      { opacity: 1, offset: .12 },
+      { opacity: 1, offset: .7 },
+      { transform: tf(ex, ey), opacity: 0 }
+    ], { duration: rnd(2400, 4200), easing: "cubic-bezier(.3,.1,.6,1)" });
+    anim.onfinish = () => el.remove();
+  }
+  if (!matchMedia("(prefers-reduced-motion: reduce)").matches) {
+    const loop = () => setTimeout(() => {
+      if (!document.hidden) {
+        comet(false);
+        if (Math.random() < .15) setTimeout(() => comet(true), rnd(500, 1500));
+      }
+      loop();
+    }, rnd(5000, 13000));
+    setTimeout(() => { comet(false); loop(); }, 1800);   // первая комета почти сразу
+  }
+})();
+
+/* Масштабирование окна под экран: на телефоне занимает весь экран, на компьютере не больше 100% */
+let scale = 1;
+function fit() {
+  const vw = (window.visualViewport ? visualViewport.width : innerWidth);
+  const vh = (window.visualViewport ? visualViewport.height : innerHeight);
+  scale = Math.min(vw / W, vh / H);
+  if (matchMedia("(pointer: fine)").matches) scale = Math.min(scale, 1);
+  stage.style.setProperty("--s", scale);
+}
+fit();
+addEventListener("resize", fit);
+addEventListener("orientationchange", fit);
+if (window.visualViewport) visualViewport.addEventListener("resize", fit);
+
+/* 3D-наклон панели: следует за указателем, в покое мягко покачивается */
+(function tilt() {
+  const panel = $("panel");
+  if (matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  const MAX = 11;                                   // максимальный угол, градусов
+  const cl = (v) => Math.max(-1, Math.min(1, v));
+  let tx = 0, ty = 0, cx = 0, cy = 0, active = false;
+  document.addEventListener("pointermove", (e) => {
+    const p = stagePos(e.clientX, e.clientY);
+    const w = panel.offsetWidth, h = panel.offsetHeight, d = Math.max(w, h) * .6;
+    tx = cl((p.x - (panel.offsetLeft + w / 2)) / d);
+    ty = cl((p.y - (panel.offsetTop + h / 2)) / d);
+    active = true;
+  });
+  const rest = () => { active = false; };
+  document.addEventListener("pointerup", (e) => { if (e.pointerType !== "mouse") rest(); });
+  document.addEventListener("pointercancel", rest);
+  document.documentElement.addEventListener("pointerleave", rest);
+  (function frame(now) {
+    if (!active) { tx = Math.sin(now / 1700) * .38; ty = Math.cos(now / 2300) * .3; }
+    cx += (tx - cx) * .09; cy += (ty - cy) * .09;
+    panel.style.transform = `perspective(900px) rotateX(${(-cy * MAX).toFixed(2)}deg) rotateY(${(cx * MAX).toFixed(2)}deg)`;
+    requestAnimationFrame(frame);
+  })(0);
+})();
+
+/* Убегающая кнопка «Нет» (координаты считаются внутри окна 390×844) */
+let dodges = 0;
+let target = null;          // конечная позиция кнопки (не промежуточная, пока идёт анимация)
+let lockUntil = 0;          // пока идёт прыжок, новые прыжки не запускаются
+const JUMP_MS = 280;        // чуть больше времени анимации (.25s)
+const texts = ["Неет("];
+
+function stagePos(clientX, clientY) {
+  const r = stage.getBoundingClientRect();
+  return { x: (clientX - r.left) / scale, y: (clientY - r.top) / scale };
+}
+
+function dodge() {
+  const now = performance.now();
+  if (now < lockUntil) return;
+  lockUntil = now + JUMP_MS;
+  dodges++;
+  const w = no.offsetWidth, h = no.offsetHeight, pad = 12;
+  // запретные зоны: кнопка «Да» и весь текст первого экрана (по фактическим границам текста)
+  const zones = [];
+  const addZone = (r) => {
+    const p = stagePos(r.left, r.top);
+    zones.push({ x: p.x, y: p.y, w: r.width / scale, h: r.height / scale });
+  };
+  addZone(yes.getBoundingClientRect());
+  document.querySelectorAll("#step-ask h1, #step-ask p").forEach((el) => {
+    const range = document.createRange();
+    range.selectNodeContents(el);
+    addZone(range.getBoundingClientRect());
+  });
+  const hitsZone = (px, py) => zones.some((z) =>
+    px < z.x + z.w + ZONE_MARGIN && px + w > z.x - ZONE_MARGIN &&
+    py < z.y + z.h + ZONE_MARGIN && py + h > z.y - ZONE_MARGIN);
+  let cur = target;
+  if (!cur) {
+    const br = no.getBoundingClientRect();
+    cur = stagePos(br.left, br.top);
+  }
+  const maxX = W - w - pad, maxY = H - h - pad;
+  let x = cur.x, y = cur.y, bestMiss = Infinity;
+
+  for (let i = 0; i < 60; i++) {
+    const angle = Math.random() * Math.PI * 2;
+    const dist = MIN_JUMP + Math.random() * (MAX_JUMP - MIN_JUMP);
+    const nx = cur.x + Math.cos(angle) * dist;
+    const ny = cur.y + Math.sin(angle) * dist;
+    if (nx < pad || nx > maxX || ny < pad || ny > maxY) {
+      const cx = Math.min(Math.max(nx, pad), maxX), cy = Math.min(Math.max(ny, pad), maxY);
+      if (hitsZone(cx, cy)) continue;
+      const d = Math.hypot(cx - cur.x, cy - cur.y);
+      const miss = d < MIN_JUMP ? MIN_JUMP - d : d > MAX_JUMP ? d - MAX_JUMP : 0;
+      if (miss < bestMiss) { bestMiss = miss; x = cx; y = cy; }
+      continue;
+    }
+    if (hitsZone(nx, ny)) continue;
+    x = nx; y = ny; break;
+  }
+  target = { x, y };
+  if (!no.classList.contains("fly")) {
+    const hadFocus = document.activeElement === no;
+    stage.appendChild(no);          // у панели есть transform, поэтому переносим кнопку на сцену
+    if (hadFocus) no.focus({ preventScroll: true });
+    no.style.transition = "none";
+    no.classList.add("fly");
+    no.style.left = cur.x + "px";
+    no.style.top = cur.y + "px";
+    void no.offsetWidth;            // применяем стартовую позицию до анимации
+    no.style.transition = "";
+  }
+  no.style.left = x + "px";
+  no.style.top = y + "px";
+  no.textContent = texts[Math.min(dodges, texts.length - 1)];
+}
+
+document.addEventListener("pointermove", (e) => {
+  if (performance.now() < lockUntil) return;
+  let c;
+  if (target) {
+    c = { x: target.x + no.offsetWidth / 2, y: target.y + no.offsetHeight / 2 };
+  } else {
+    const r = no.getBoundingClientRect();
+    c = stagePos(r.left + r.width / 2, r.top + r.height / 2);
+  }
+  const p = stagePos(e.clientX, e.clientY);
+  if (Math.hypot(p.x - c.x, p.y - c.y) < TRIGGER_RADIUS) dodge();
+});
+no.addEventListener("pointerdown", (e) => { e.preventDefault(); dodge(); });
+no.addEventListener("click", (e) => { e.preventDefault(); dodge(); });
+no.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); dodge(); } });
+
+/* «Да» */
+yes.addEventListener("click", () => {
+  $("step-ask").classList.add("hidden");
+  $("step-details").classList.remove("hidden");
+  no.classList.add("hidden");
+  burst();
+});
+
+/* Выбор идей */
+document.querySelectorAll(".chip").forEach((c) =>
+  c.addEventListener("click", () => c.setAttribute("aria-pressed", c.getAttribute("aria-pressed") !== "true"))
+);
+
+/* Отправка */
+$("send").addEventListener("click", async () => {
+  const ideas = [...document.querySelectorAll('.chip[aria-pressed="true"]')]
+    .map((c) => c.textContent.trim()).join(", ") || "не выбрал";
+  const body =
+    `Валентин сказал: ДА! 💖\n\n` +
+    `Идеи: ${ideas}\n` +
+    `Дата: ${$("date").value || "не указана"}\n` +
+    `Время: ${$("time").value || "не указано"}\n` +
+    `Пожелания: ${$("note").value || "нету"}`;
+  const subject = "Валя ответил на приглашение 💌";
+
+  const btn = $("send"), err = $("error");
+  err.classList.add("hidden");
+
+  if (!WEB3FORMS_KEY) {
+    location.href = `mailto:${YOUR_EMAIL}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+    finish();
+    return;
+  }
+
+  btn.disabled = true; btn.textContent = "эээ";
+  try {
+    const res = await fetch("https://api.web3forms.com/submit", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify({ access_key: WEB3FORMS_KEY, subject, message: body, from_name: "Валентин" }),
+    });
+    const data = await res.json();
+    if (!data.success) throw new Error(data.message || "ошибка");
+    finish();
+  } catch (e) {
+    err.textContent = "эээ";
+    err.classList.remove("hidden");
+    btn.disabled = false; btn.textContent = "эээ";
+  }
+});
+
+function finish() {
+  $("step-details").classList.add("hidden");
+  $("step-done").classList.remove("hidden");
+  burst();
+}
+
+/* Конфетти */
+const cv = $("confetti"), ctx = cv.getContext("2d");
+function burst() {
+  if (matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  const colors = ["#ffffff", "#d0d0d4", "#8e8e93", "#ffd166", "#b5b5ba"];
+  const p = Array.from({ length: 120 }, () => ({
+    x: W / 2, y: H / 2,
+    vx: (Math.random() - .5) * 14, vy: Math.random() * -14 - 3,
+    s: 4 + Math.random() * 6, c: colors[Math.floor(Math.random() * colors.length)], r: Math.random() * 6
+  }));
+  let t = 0;
+  (function frame() {
+    ctx.clearRect(0, 0, W, H);
+    p.forEach((q) => {
+      q.vy += .35; q.x += q.vx; q.y += q.vy; q.r += .2;
+      ctx.save(); ctx.translate(q.x, q.y); ctx.rotate(q.r);
+      ctx.fillStyle = q.c; ctx.fillRect(-q.s / 2, -q.s / 2, q.s, q.s * .6); ctx.restore();
+    });
+    if (++t < 130) requestAnimationFrame(frame); else ctx.clearRect(0, 0, W, H);
+  })();
+}
+</script>
+</body>
+</html>
